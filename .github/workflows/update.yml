@@ -1,4 +1,29 @@
-python -c "
+name: Jagobd Auto Playlist
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install Requests
+        run: pip install requests
+
+      - name: Fetch Channels
+        run: |
+          python <<EOF
           import requests
           import re
 
@@ -17,32 +42,46 @@ python -c "
 
           for name, slug in channels.items():
               try:
-                  # ১. মূল পেজ থেকে আইফ্রেম ইউআরএল খোঁজা
-                  main_res = requests.get(f'https://www.jagobd.com/{slug}', headers=headers, timeout=10).text
-                  iframe_url = re.search(r'iframe src=\"(.*?)\"', main_res)
+                  url = f'https://www.jagobd.com/{slug}'
+                  print(f'Trying {name}...')
+                  res = requests.get(url, headers=headers, timeout=15).text
                   
-                  if iframe_url:
-                      target_url = iframe_url.group(1)
-                      # ২. আইফ্রেম পেজ ভিজিট করে টোকেন খোঁজা
-                      headers['Referer'] = f'https://www.jagobd.com/{slug}'
-                      iframe_res = requests.get(target_url, headers=headers, timeout=10).text
-                      
-                      # wmsAuthSign খুঁজি
-                      token_match = re.search(r'wmsAuthSign=([\w.~-]+)', iframe_res)
-                      
-                      if token_match:
-                          token = token_match.group(1)
-                          # জাগোবিডি এখন static.jagobd.com.bd অথবা অন্য সার্ভার ব্যবহার করতে পারে
-                          link = f'https://static.jagobd.com.bd/live/{slug}.stream/playlist.m3u8?wmsAuthSign={token}'
-                          m3u_text += f'#EXTINF:-1, {name}\n'
-                          m3u_text += f'#EXTVLCOPT:http-referer=https://tvz.jagobd.com/\n'
-                          m3u_text += f'{link}\n'
-                          print(f'Found token for {name}')
+                  # টোকেন খোঁজার কয়েকটি প্যাটার্ন (সবগুলো ট্রাই করা হচ্ছে)
+                  token = None
+                  
+                  # ১. সরাসরি অথ সাইন খোঁজা
+                  match = re.search(r'wmsAuthSign=([\w.~-]+)', res)
+                  if match:
+                      token = match.group(1)
+                  
+                  # ২. আইফ্রেম থেকে খোঁজা (যদি আগেরটাতে না পায়)
+                  if not token:
+                      iframe = re.search(r'iframe src="(.*?)"', res)
+                      if iframe:
+                          iframe_res = requests.get(iframe.group(1), headers=headers, timeout=10).text
+                          match = re.search(r'wmsAuthSign=([\w.~-]+)', iframe_res)
+                          if match:
+                              token = match.group(1)
+
+                  if token:
+                      link = f'https://static.jagobd.com.bd/live/{slug}.stream/playlist.m3u8?wmsAuthSign={token}'
+                      m3u_text += f'#EXTINF:-1, {name}\n'
+                      m3u_text += f'#EXTVLCOPT:http-referer=https://tvz.jagobd.com/\n'
+                      m3u_text += f'{link}\n'
+                      print(f'Success for {name}')
                   else:
-                      print(f'No iframe found for {name}')
+                      print(f'Token NOT found for {name}')
               except Exception as e:
-                  print(f'Error for {name}: {e}')
+                  print(f'Error for {name}: {str(e)}')
 
           with open('jagobd.m3u', 'w') as f:
               f.write(m3u_text)
-          "
+          EOF
+
+      - name: Commit and Push
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add jagobd.m3u
+          git commit -m "Updated Jagobd M3U" || exit 0
+          git push
