@@ -1,9 +1,11 @@
-name: Jagobd Final Test
+name: Jagobd Final GitHub Try
 on:
+  schedule:
+    - cron: '*/20 * * * *'
   workflow_dispatch:
 
 jobs:
-  build:
+  update-m3u:
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -11,38 +13,40 @@ jobs:
       - name: Checkout Repo
         uses: actions/checkout@v4
 
-      - name: Fetch Al Jazeera
+      - name: Get Al Jazeera Link
         run: |
-          # 1. Direct page fetch using curl (masking as a real browser)
-          RESPONSE=$(curl -s -L -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" "https://www.jagobd.com/aljazeera")
+          # ১. ব্রাউজার সেজে পেজটি ফেচ করা
+          USER_AGENT="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+          REFERER="https://www.jagobd.com/"
           
-          # 2. Extract Token using grep and sed
-          TOKEN=$(echo "$RESPONSE" | grep -oP 'wmsAuthSign=[\w.~-]+' | head -1 | cut -d'=' -f2)
+          echo "Fetching Al Jazeera page..."
+          HTML_CONTENT=$(curl -s -L -A "$USER_AGENT" -e "$REFERER" "https://www.jagobd.com/aljazeera")
           
-          # 3. Extract Path ID (the long code)
-          PATH_ID=$(echo "$RESPONSE" | grep -oP '(?<=static.jagobd.com.bd/)[a-zA-Z0-9]{50,150}' | head -1)
+          # ২. টোকেন (wmsAuthSign) খুঁজে বের করা
+          TOKEN=$(echo "$HTML_CONTENT" | grep -o 'wmsAuthSign=[^"&]*' | head -1 | cut -d'=' -f2)
+          
+          # ৩. পাথ আইডি (সেই লম্বা কোডটি) খুঁজে বের করা
+          PATH_ID=$(echo "$HTML_CONTENT" | grep -oP '(?<=static.jagobd.com.bd/)[^/]+(?=/aljazeera.stream)' | head -1)
 
+          # যদি মেইন পেজে না পায়, তবে প্লেয়ার গেটওয়ে ট্রাই করা
           if [ -z "$TOKEN" ]; then
-            # Try from iframe if main page fails
-            IFRAME_URL=$(echo "$RESPONSE" | grep -oP '(?<=iframe src=")[^"]+' | head -1)
-            if [[ "$IFRAME_URL" == //* ]]; then IFRAME_URL="https:$IFRAME_URL"; fi
-            
-            IFRAME_RES=$(curl -s -L -A "Mozilla/5.0" -e "https://www.jagobd.com/aljazeera" "$IFRAME_URL")
-            TOKEN=$(echo "$IFRAME_RES" | grep -oP 'wmsAuthSign=[\w.~-]+' | head -1 | cut -d'=' -f2)
-            PATH_ID=$(echo "$IFRAME_RES" | grep -oP '(?<=static.jagobd.com.bd/)[a-zA-Z0-9]{50,150}' | head -1)
+            echo "Token not found on main page, trying player gateway..."
+            PLAYER_HTML=$(curl -s -L -A "$USER_AGENT" -e "https://www.jagobd.com/aljazeera" "https://tvz.jagobd.com/aljazeera")
+            TOKEN=$(echo "$PLAYER_HTML" | grep -o 'wmsAuthSign=[^"&]*' | head -1 | cut -d'=' -f2)
+            PATH_ID=$(echo "$PLAYER_HTML" | grep -oP '(?<=static.jagobd.com.bd/)[^/]+(?=/aljazeera.stream)' | head -1)
           fi
 
-          # Create M3U File
+          # ৪. ফাইল তৈরি করা
           echo "#EXTM3U" > jagobd.m3u
-          if [ ! -z "$TOKEN" ]; then
-            FINAL_LINK="https://static.jagobd.com.bd/${PATH_ID:-live}/aljazeera.stream/playlist.m3u8?wmsAuthSign=$TOKEN"
-            echo "#EXTINF:-1, Al Jazeera" >> jagobd.m3u
+          if [ ! -z "$TOKEN" ] && [ ! -z "$PATH_ID" ]; then
+            FINAL_LINK="https://static.jagobd.com.bd/$PATH_ID/aljazeera.stream/playlist.m3u8?wmsAuthSign=$TOKEN"
+            echo "#EXTINF:-1, Al Jazeera English" >> jagobd.m3u
             echo "#EXTVLCOPT:http-referer=https://tvz.jagobd.com/" >> jagobd.m3u
             echo "$FINAL_LINK" >> jagobd.m3u
-            echo "Success: Link Found"
+            echo "SUCCESS: Link generated!"
           else
-            echo "# Error: Token not found" >> jagobd.m3u
-            echo "Failed: IP Blocked"
+            echo "# Error: Token or Path ID could not be retrieved from GitHub IP" >> jagobd.m3u
+            echo "FAILED: Jagobd is blocking this GitHub runner."
           fi
 
       - name: Commit and Push
@@ -50,5 +54,5 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add jagobd.m3u
-          git commit -m "Jagobd Update" || exit 0
+          git commit -m "Auto Update: $(date)" || exit 0
           git push
