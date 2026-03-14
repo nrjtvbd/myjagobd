@@ -1,7 +1,7 @@
 name: Jagobd Auto Playlist
 on:
   schedule:
-    - cron: '*/30 * * * *'
+    - cron: '*/20 * * * *'
   workflow_dispatch:
 
 jobs:
@@ -21,61 +21,62 @@ jobs:
       - name: Install Requests
         run: pip install requests
 
-      - name: Fetch Channels
+      - name: Grab Al Jazeera Link
         run: |
           python <<EOF
           import requests
           import re
 
-          channels = {
-              'Al Jazeera': 'aljazeera',
-              'Somoy TV': 'somoy-tv',
-              'Ekattor TV': 'ekattor-tv',
-              'BTV World': 'btv-world'
-          }
-
-          m3u_text = '#EXTM3U\n'
-          headers = {
-              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-              'Referer': 'https://www.jagobd.com/'
-          }
-
-          for name, slug in channels.items():
+          def get_stream():
+              url = 'https://www.jagobd.com/aljazeera'
+              headers = {
+                  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+                  'Referer': 'https://www.jagobd.com/'
+              }
+              
               try:
-                  url = f'https://www.jagobd.com/{slug}'
-                  print(f'Trying {name}...')
-                  res = requests.get(url, headers=headers, timeout=15).text
+                  # ১. মূল পেজ থেকে আইফ্রেম খোঁজা
+                  response = requests.get(url, headers=headers, timeout=15).text
+                  iframe_match = re.search(r'iframe src=\"(.*?)\"', response)
                   
-                  # টোকেন খোঁজার কয়েকটি প্যাটার্ন (সবগুলো ট্রাই করা হচ্ছে)
-                  token = None
+                  if iframe_match:
+                      iframe_url = iframe_match.group(1)
+                      if iframe_url.startswith('//'): iframe_url = 'https:' + iframe_url
+                      
+                      # ২. আইফ্রেমের ভেতর থেকে সরাসরি m3u8 বা টোকেন বের করা
+                      res_iframe = requests.get(iframe_url, headers=headers, timeout=15).text
+                      
+                      # wmsAuthSign খুঁজে বের করা
+                      token_match = re.search(r'wmsAuthSign=([\w.~-]+)', res_iframe)
+                      path_match = re.search(r'c3VydmVyX8[\w.~-]+', res_iframe) # আপনার লগের সেই বিশেষ পাথ
+                      
+                      if token_match:
+                          token = token_match.group(1)
+                          # পাথ যদি আইফ্রেম থেকে পাওয়া যায় তবে সেটি ব্যবহার করা, নাহলে ডিফল্ট
+                          path = path_match.group(0) if path_match else "c3VydmVyX8RpbEU9Mi8xNy8yMFDEEHGcfRgzQ6NTAgdEoaeFzbF92YWxIZTO0U0ezN1IzMyfvcEdsEfeDeKiNkVN3PTOmdFseWRtaW51aiPhnPTI2"
+                          
+                          return f"https://static.jagobd.com.bd/{path}/aljazeera.stream/playlist.m3u8?wmsAuthSign={token}"
                   
-                  # ১. সরাসরি অথ সাইন খোঁজা
-                  match = re.search(r'wmsAuthSign=([\w.~-]+)', res)
-                  if match:
-                      token = match.group(1)
-                  
-                  # ২. আইফ্রেম থেকে খোঁজা (যদি আগেরটাতে না পায়)
-                  if not token:
-                      iframe = re.search(r'iframe src="(.*?)"', res)
-                      if iframe:
-                          iframe_res = requests.get(iframe.group(1), headers=headers, timeout=10).text
-                          match = re.search(r'wmsAuthSign=([\w.~-]+)', iframe_res)
-                          if match:
-                              token = match.group(1)
-
-                  if token:
-                      link = f'https://static.jagobd.com.bd/live/{slug}.stream/playlist.m3u8?wmsAuthSign={token}'
-                      m3u_text += f'#EXTINF:-1, {name}\n'
-                      m3u_text += f'#EXTVLCOPT:http-referer=https://tvz.jagobd.com/\n'
-                      m3u_text += f'{link}\n'
-                      print(f'Success for {name}')
-                  else:
-                      print(f'Token NOT found for {name}')
+                  return None
               except Exception as e:
-                  print(f'Error for {name}: {str(e)}')
+                  print(f"Error: {e}")
+                  return None
+
+          final_link = get_stream()
+          
+          m3u_content = "#EXTM3U\n"
+          if final_link:
+              m3u_content += "#EXTINF:-1, Al Jazeera English\n"
+              m3u_content += "#EXTVLCOPT:http-user-agent=Mozilla/5.0\n"
+              m3u_content += "#EXTVLCOPT:http-referer=https://tvz.jagobd.com/\n"
+              m3u_content += f"{final_link}\n"
+              print("Successfully generated link!")
+          else:
+              m3u_content += "# No Link Found\n"
+              print("Link not found, creating empty file.")
 
           with open('jagobd.m3u', 'w') as f:
-              f.write(m3u_text)
+              f.write(m3u_content)
           EOF
 
       - name: Commit and Push
@@ -83,5 +84,5 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add jagobd.m3u
-          git commit -m "Updated Jagobd M3U" || exit 0
+          git commit -m "Update Al Jazeera Link" || exit 0
           git push
