@@ -1,90 +1,36 @@
-name: Jagobd Al Jazeera Fix
-on:
-  schedule:
-    - cron: '*/20 * * * *'
-  workflow_dispatch:
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - name: Checkout Repo
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-
-      - name: Install Requests
-        run: pip install requests
-
-      - name: Fetch Al Jazeera
-        run: |
-          python <<EOF
-          import requests
+import requests
           import re
 
-          # নতুন টার্গেট URL এবং হেডার
-          url = "https://www.jagobd.com/aljazeera"
+          # আপনার দেওয়া সেই পুরনো কিন্তু কার্যকর ফরম্যাট
+          # আমরা চেষ্টা করছি নতুন পাথ আইডি খুঁজে বের করতে
+          channel_slug = "aljazeera" # প্রথমে আল জাজিরা দিয়ে টেস্ট
+          
           headers = {
-              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36',
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
               'Referer': 'https://www.jagobd.com/',
-              'Accept-Language': 'en-US,en;q=0.9'
+              'Origin': 'https://www.jagobd.com'
           }
 
-          m3u_text = '#EXTM3U\n'
-          
           try:
-              print("Fetching Al Jazeera Page...")
-              response = requests.get(url, headers=headers, timeout=20)
-              html = response.text
-
-              # ১. লিঙ্কে থাকা সেই রহস্যময় হাশ/পাথ খোঁজা
-              # আপনার দেওয়া লগ অনুযায়ী: c3VydmVyX8R...
-              path_match = re.search(r'([a-zA-Z0-9]{30,150})/aljazeera\.stream', html)
+              # জাগোবিডি পেজ থেকে বর্তমান 'Path' এবং 'Token' সংগ্রহ
+              res = requests.get(f"https://www.jagobd.com/{channel_slug}", headers=headers).text
               
-              # ২. টোকেন (wmsAuthSign) খোঁজা
-              token_match = re.search(r'wmsAuthSign=([\w.~-]+)', html)
+              # আপনার লিঙ্কের মতো সেই বড় পাথ আইডি খোঁজা
+              path_match = re.search(r'https?://[a-z0-9.]+/([a-zA-Z0-9_-]{50,})/aljazeera', res)
+              token_match = re.search(r'wmsAuthSign=([\w.~-]+)', res)
 
-              if not token_match:
-                  # যদি মেইন পেজে না থাকে, তবে তাদের ইন্টারনাল প্লেয়ার লিঙ্কে খোঁজা
-                  iframe_url = "https://tvz.jagobd.com/aljazeera"
-                  print("Checking Player Iframe...")
-                  headers['Referer'] = url
-                  iframe_res = requests.get(iframe_url, headers=headers, timeout=15).text
-                  token_match = re.search(r'wmsAuthSign=([\w.~-]+)', iframe_res)
-                  if not path_match:
-                      path_match = re.search(r'([a-zA-Z0-9]{30,150})/aljazeera\.stream', iframe_res)
-
-              if token_match and path_match:
+              if token_match:
                   token = token_match.group(1)
-                  path_id = path_match.group(1)
-                  # আপনার নেটওয়ার্ক লগ অনুযায়ী লিঙ্কের ফরম্যাট:
-                  stream_url = f"https://static.jagobd.com.bd/{path_id}/aljazeera.stream/playlist.m3u8?wmsAuthSign={token}"
+                  # যদি পাথ আইডি না পাওয়া যায়, তবে নতুন স্ট্যাটিক সার্ভার ব্যবহার
+                  path_id = path_match.group(1) if path_match else "live" 
                   
-                  m3u_text += "#EXTINF:-1, Al Jazeera English\n"
-                  m3u_text += "#EXTVLCOPT:http-referer=https://tvz.jagobd.com/\n"
-                  m3u_text += f"{stream_url}\n"
-                  print("Success: Al Jazeera link generated!")
+                  final_link = f"https://static.jagobd.com.bd/{path_id}/{channel_slug}.stream/playlist.m3u8?wmsAuthSign={token}"
+                  print(f"Generated Link: {final_link}")
+                  
+                  # ফাইল রাইট করা
+                  with open('jagobd.m3u', 'w') as f:
+                      f.write(f"#EXTM3U\n#EXTINF:-1, Al Jazeera\n#EXTVLCOPT:http-referer=https://tvz.jagobd.com/\n{final_link}")
               else:
-                  print("Failed: Token or Path not found.")
-                  # যদি কিছু না পায়, অন্তত স্ট্যাটিক ফরম্যাট ট্রাই করা
-                  m3u_text += "# Error: Could not fetch fresh token\n"
-
+                  print("Token not found. Jagobd is blocking GitHub IP.")
           except Exception as e:
-              print(f"Error: {str(e)}")
-
-          with open('jagobd.m3u', 'w') as f:
-              f.write(m3u_text)
-          EOF
-
-      - name: Commit and Push
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add jagobd.m3u
-          git commit -m "Update Al Jazeera [$(date)]" || exit 0
-          git push
+              print(f"Error: {e}")
