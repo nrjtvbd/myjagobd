@@ -4,100 +4,115 @@ import json
 from datetime import datetime
 
 def get_all_channels():
-    """aynaott.com থেকে সব চ্যানেলের নাম এবং স্লাগ সংগ্রহের জন্য সবচেয়ে শক্তিশালী প্যাটার্ন"""
-    url = "https://aynaott.com/"
+    """aynascope.net থেকে সব চ্যানেলের নাম এবং স্লাগ সংগ্রহ করার উন্নত ফাংশন"""
+    url = "https://aynascope.net/"
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"
     }
     
     try:
         print(f"🔎 Scanning {url} for all available channels...")
-        response = requests.get(url, headers=headers, timeout=15)
+        response = requests.get(url, headers=headers, timeout=20)
         
-        # এই প্যাটার্নটি /live/ এর পরের অংশ এবং ট্যাগের ভেতরে থাকা নাম খুঁজে নেবে
-        # এটি আরও নমনীয়ভাবে তৈরি করা হয়েছে
-        matches = re.findall(r'href=["\'](?:https://aynaott\.com)?/live/([a-zA-Z0-9_-]+)["\'][^>]*>(.*?)<', response.text, re.DOTALL)
+        # aynascope এর নতুন লিঙ্কিং ফরম্যাট অনুযায়ী স্লাগ বের করা
+        matches = re.findall(r'href=["\'](?:https://aynascope\.net)?/live/([a-zA-Z0-9_-]+)["\'][^>]*>(.*?)<', response.text, re.DOTALL)
         
         channels = []
         unique_slugs = set()
         
         for slug, title in matches:
-            # HTML ট্যাগ এবং অতিরিক্ত স্পেস পরিষ্কার করা
             clean_name = re.sub('<[^<]+?>', '', title).strip()
+            if not clean_name: clean_name = slug.replace('-', ' ').title()
             
-            # যদি নাম না পাওয়া যায়, তবে স্লাগ থেকে নাম তৈরি করবে
-            if not clean_name:
-                clean_name = slug.replace('-', ' ').title()
-            
+            # অপ্রয়োজনীয় স্লাগ ফিল্টার
             if slug not in unique_slugs and len(slug) > 2:
                 channels.append({"name": clean_name, "slug": slug})
                 unique_slugs.add(slug)
         
         if not channels:
-            print("⚠️ Automatic scan failed, using fallback list.")
-            channels = [
+            print("⚠️ Automatic scan failed on aynascope, using backup list.")
+            return [
                 {"name": "Somoy TV", "slug": "somoy-tv"},
-                {"name": "T Sports", "slug": "t-sports"},
-                {"name": "Jamuna TV", "slug": "jamuna-tv"},
-                {"name": "Ekattor TV", "slug": "ekattor-tv"}
+                {"name": "T Sports", "slug": "t-sports-hd"},
+                {"name": "GTV", "slug": "gtv-live"},
+                {"name": "Jamuna TV", "slug": "jamuna-tv"}
             ]
         
-        print(f"✅ Found {len(channels)} channels.")
+        print(f"✅ Found {len(channels)} channels on Aynascope.")
         return channels
     except Exception as e:
-        print(f"❌ Error: {e}")
+        print(f"❌ Error during scan: {e}")
         return []
 
-def fetch_ayna_info(slug):
-    """টোকেন এবং সার্ভার ইউআরএল খুঁজে বের করা"""
-    base_url = f"https://aynaott.com/live/{slug}"
+def fetch_aynascope_info(slug):
+    """সরাসরি aynascope থেকে টোকেন এবং সার্ভার ইউআরএল খুঁজে বের করা"""
+    base_url = f"https://aynascope.net/live/{slug}"
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Referer": "https://aynaott.com/"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "Referer": "https://aynascope.net/"
     }
     
     try:
         response = requests.get(base_url, headers=headers, timeout=15)
-        source = response.text
+        html = response.text
         
-        # সার্ভার ডিটেকশন (tvsen5, tvsen7 ইত্যাদি)
-        stream_match = re.search(r'(https?://[a-z0-9.]+\.aynascope\.net/[a-zA-Z0-9_-]+/)?index\.m3u8', source)
-        if not stream_match:
-            # অল্টারনেট প্যাটার্ন যদি সোর্স সরাসরি থাকে
-            stream_match = re.search(r'["\'](https?://[a-z0-9.]+\.aynascope\.net/.*?/index\.m3u8.*?)["\']', source)
-            if stream_match:
-                return stream_match.group(1)
-            return None
+        # উন্নত রেজেক্স: যা সরাসরি ফুল ইউআরএল খুঁজে নেবে
+        stream_match = re.search(r'https?://[a-z0-9.]+\.aynascope\.net/[a-zA-Z0-9_-]+/index\.m3u8\?e=\d+&u=[a-z0-9-]+&token=[a-zA-Z0-9]+', html)
         
-        # প্যারামিটার এক্সট্রাকশন
-        token = re.search(r'token=([a-zA-Z0-9]+)', source).group(1)
-        expiry = re.search(r'e=(\d+)', source).group(1)
-        uid = re.search(r'u=([a-z0-9-]+)', source).group(1)
+        if stream_match:
+            return stream_match.group(0)
+            
+        # যদি ফুল ইউআরএল না পায়, তবে পার্ট বাই পার্ট খুঁজবে
+        server = re.search(r'(https?://[a-z0-9.]+\.aynascope\.net/[a-zA-Z0-9_-]+/)index\.m3u8', html)
+        token = re.search(r'token=([a-zA-Z0-9]+)', html)
+        expiry = re.search(r'e=(\d+)', html)
+        uid = re.search(r'u=([a-z0-9-]+)', html)
         
-        final_url = f"{stream_match.group(1)}index.m3u8?e={expiry}&u={uid}&token={token}"
-        return final_url
+        if server and token:
+            return f"{server.group(1)}index.m3u8?e={expiry.group(1)}&u={uid.group(1)}&token={token.group(1)}"
+        return None
     except:
         return None
 
 def main():
+    print("🚀 Aynascope Super Auto Update Started...")
     channels = get_all_channels()
-    vlc_headers = "|User-Agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36&Referer=https://aynaott.com/"
     
-    internal_data = {"status": "active", "updated": True, "last_update": datetime.now().strftime('%Y-%m-%d %H:%M:%S'), "payload": []}
+    # VLC Header (Aynascope Referer সহ)
+    vlc_headers = "|User-Agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36&Referer=https://aynascope.net/"
+    
+    internal_data = {
+        "status": "active",
+        "last_update": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        "payload": []
+    }
+    
     m3u_content = "#EXTM3U\n"
+    success_count = 0
 
     for ch in channels:
-        url = fetch_ayna_info(ch['slug'])
-        if url:
-            internal_data["payload"].append({"name": ch['name'], "src": url, "type": "LiveTV"})
-            m3u_content += f'#EXTINF:-1 group-title="AynaOTT",{ch["name"]}\n{url}{vlc_headers}\n\n'
+        live_url = fetch_aynascope_info(ch['slug'])
+        if live_url:
+            internal_data["payload"].append({
+                "name": ch['name'],
+                "src": live_url,
+                "type": "LiveTV"
+            })
+            
+            m3u_content += f'#EXTINF:-1 group-title="Aynascope",{ch["name"]}\n'
+            m3u_content += f"{live_url}{vlc_headers}\n\n"
+            success_count += 1
             print(f"✔️ Added: {ch['name']}")
 
+    # ফাইলগুলো সেভ করা
     with open("internal_data.json", "w", encoding="utf-8") as jf:
         json.dump(internal_data, jf, indent=4)
+        
     with open("AynaOTT.m3u", "w", encoding="utf-8") as mf:
         mf.write(m3u_content)
-    print("\n✅ Success!")
+
+    print(f"\n✅ Finished! {success_count} channels updated from Aynascope.")
 
 if __name__ == "__main__":
     main()
