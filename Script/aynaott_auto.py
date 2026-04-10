@@ -1,22 +1,20 @@
 import requests
 import re
 import json
-import os
 from datetime import datetime
 
 def get_all_channels():
-    """আয়নাস্কোপের হোমপেজ থেকে সব চ্যানেলের স্লাগ এবং নাম সংগ্রহ করার ফাংশন"""
-    url = "https://aynascope.net/"
+    """aynaott.com থেকে সব চ্যানেলের নাম এবং স্লাগ সংগ্রহ করার ফাংশন"""
+    url = "https://aynaott.com/"
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
     
     try:
-        print("🔎 Scanning AynaOTT for all available channels...")
+        print(f"🔎 Scanning {url} for all available channels...")
         response = requests.get(url, headers=headers, timeout=15)
-        # HTML থেকে চ্যানেলের স্লাগ এবং টাইটেল বের করার প্যাটার্ন
-        # সাধারণত /live/slug ফরম্যাটে থাকে
-        matches = re.findall(r'href="https://aynascope\.net/live/([a-zA-Z0-9_-]+)".*?title="(.*?)"', response.text)
+        # নতুন ডোমেইন অনুযায়ী লিঙ্কের প্যাটার্ন
+        matches = re.findall(r'href="https://aynaott\.com/live/([a-zA-Z0-9_-]+)".*?title="(.*?)"', response.text)
         
         channels = []
         unique_slugs = set()
@@ -33,24 +31,24 @@ def get_all_channels():
         return []
 
 def fetch_ayna_info(slug):
-    """প্রতিটি চ্যানেলের জন্য লেটেস্ট টোকেন এবং সার্ভার ইউআরএল খুঁজে বের করা"""
-    base_url = f"https://aynascope.net/live/{slug}"
+    """সঠিক সার্ভার এবং টোকেন খুঁজে বের করা"""
+    base_url = f"https://aynaott.com/live/{slug}"
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36",
-        "Referer": "https://aynascope.net/"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Referer": "https://aynaott.com/"
     }
     
     try:
         response = requests.get(base_url, headers=headers, timeout=15)
         source = response.text
         
-        # সার্ভার এবং ইনডেক্স ফাইল প্যাটার্ন (tvsen5/7 হ্যান্ডলিং)
-        stream_match = re.search(r'(https?://[a-z0-9.]+/([a-zA-Z0-9_-]+)/)index\.m3u8', source)
+        # সার্ভার ইউআরএল প্যাটার্ন (tvsen5/7 ইত্যাদি)
+        stream_match = re.search(r'(https?://[a-z0-9.]+\.aynascope\.net/([a-zA-Z0-9_-]+)/)index\.m3u8', source)
         if not stream_match: return None
         
         main_stream_url = stream_match.group(1) + "index.m3u8"
         
-        # টোকেন এবং প্যারামিটার এক্সট্রাকশন
+        # টোকেন প্যারামিটার এক্সট্রাকশন
         token = re.search(r'token=([a-zA-Z0-9]+)', source).group(1)
         expiry = re.search(r'e=(\d+)', source).group(1)
         uid = re.search(r'u=([a-z0-9-]+)', source).group(1)
@@ -60,44 +58,29 @@ def fetch_ayna_info(slug):
         return None
 
 def main():
-    # ম্যানুয়ালি লিস্ট দেওয়ার বদলে এখন অটোমেটিক সংগ্রহ হবে
     channels_to_track = get_all_channels()
     
     if not channels_to_track:
-        print("❌ No channels found. Exiting.")
-        return
+        # যদি অটো না পায় তবে অন্তত গুরুত্বপূর্ণ দুটি চ্যানেল ট্রাই করবে
+        channels_to_track = [
+            {"name": "Somoy TV", "slug": "somoy-tv"},
+            {"name": "T Sports", "slug": "t-sports"}
+        ]
 
-    vlc_headers = "|User-Agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36&Referer=https://aynascope.net/"
+    vlc_headers = "|User-Agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36&Referer=https://aynaott.com/"
     
-    internal_data = {
-        "status": "active",
-        "updated": True,
-        "last_update": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-        "payload": []
-    }
-    
+    internal_data = {"status": "active", "payload": []}
     m3u_content = "#EXTM3U\n"
 
     for ch in channels_to_track:
         live_link = fetch_ayna_info(ch['slug'])
-        
         if live_link:
-            # Roarzone স্টাইল JSON পেলোড তৈরি
-            internal_data["payload"].append({
-                "name": ch['name'],
-                "src": live_link,
-                "type": "LiveTV"
-            })
-            
-            # M3U ফরম্যাট জেনারেশন
-            m3u_content += f'#EXTINF:-1 group-title="AynaOTT",{ch["name"]}\n'
-            m3u_content += f"{live_link}{vlc_headers}\n\n"
+            internal_data["payload"].append({"name": ch['name'], "src": live_link})
+            m3u_content += f'#EXTINF:-1 group-title="AynaOTT",{ch["name"]}\n{live_link}{vlc_headers}\n\n'
             print(f"✔️ Added: {ch['name']}")
 
-    # ফাইলগুলো সেভ করা
     with open("internal_data.json", "w", encoding="utf-8") as jf:
         json.dump(internal_data, jf, indent=4)
-        
     with open("AynaOTT.m3u", "w", encoding="utf-8") as mf:
         mf.write(m3u_content)
 
