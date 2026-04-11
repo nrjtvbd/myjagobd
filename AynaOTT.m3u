@@ -1,16 +1,16 @@
 #EXTM3U
-#EXTINF:-1 group-title="AynaOTT" tvg-id="btv_world", BTV World
+#EXTINF:-1 group-title="AynaOTT", BTV World
 https://tvsen6.aynascope.net/btv_world/index.m3u8?e=1775943478&u=78be6644-0a65-48ec-81a4-089ac65a2619&token=ad943974b438c7507cfb7d505f02b373
 
-#EXTINF:-1 group-title="AynaOTT" tvg-id="tsports-hd", T Sports HD
+#EXTINF:-1 group-title="AynaOTT", T Sports HD
 https://tvsen7.aynascope.net/tsports-hd/index.m3u8?e=1775943478&u=78be6644-0a65-48ec-81a4-089ac65a2619&token=ad943974b438c7507cfb7d505f02b373
 
-#EXTINF:-1 group-title="AynaOTT" tvg-id="somoy_tv", Somoy TV
+#EXTINF:-1 group-title="AynaOTT", Somoy TV
 https://tvsen6.aynascope.net/somoy_tv/index.m3u8?e=1775943478&u=78be6644-0a65-48ec-81a4-089ac65a2619&token=ad943974b438c7507cfb7d505f02b373
 
-#EXTINF:-1 group-title="AynaOTT" tvg-id="gtv_live", GTV Live
+#EXTINF:-1 group-title="AynaOTT", GTV Live
 https://tvsen6.aynascope.net/gtv_live/index.m3u8?e=1775943478&u=78be6644-0a65-48ec-81a4-089ac65a2619&token=ad943974b438c7507cfb7d505f02b373
 
-#EXTINF:-1 group-title="AynaOTT" tvg-id="jamuna_tv", Jamuna TV
+#EXTINF:-1 group-title="AynaOTT", Jamuna TV
 https://tvsen6.aynascope.net/jamuna_tv/index.m3u8?e=1775943478&u=78be6644-0a65-48ec-81a4-089ac65a2619&token=ad943974b438c7507cfb7d505f02b373
 
