@@ -24,9 +24,10 @@ jobs:
         run: pip install requests
 
       - name: Run Scraper
-        # এখানে এপিআই ব্লক এড়াতে রিট্রাই বা টাইমআউট হ্যান্ডেল করা হয়েছে পাইথন স্ক্রিপ্টে
-        run: python Script/aynaott_auto.py
-
+        env:
+          AYNAOTT_API_URL: ${{ secrets.AYNAOTT_API_URL }}
+          run: python Script/aynaott_auto.py
+          
       - name: Commit & Push
         run: |
           git config --global user.name "github-actions[bot]"
