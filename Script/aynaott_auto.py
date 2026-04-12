@@ -1,84 +1,84 @@
 import requests
 import re
 import os
+import time
 import concurrent.futures
-from datetime import datetime
 
-# সেশন এবং হেডার সেটআপ
-session = requests.Session()
-headers = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+# উন্নত হেডার সেটআপ - যা দেখতে একদম আসল অ্যান্ড্রয়েড অ্যাপের মতো
+HEADERS = {
+    "User-Agent": "AynaOTT/1.0.3 (Linux; Android 10; K) Mobile/1.0.3",
     "Referer": "https://aynaott.com/",
-    "Origin": "https://aynaott.com"
+    "X-Requested-With": "com.aynascope.aynaott",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Connection": "keep-alive"
 }
 
-def fetch_individual_token(ch_name, ch_id):
-    """প্রতিটি চ্যানেলের জন্য আলাদা টোকেন সংগ্রহ করার ফাংশন"""
-    # সরাসরি ব্লক এড়াতে AllOrigins প্রক্সি ব্যবহার
-    target_url = f"http://sm-monirul.top/AyNa/play.php?id={ch_id}"
-    proxy_url = f"https://api.allorigins.win/get?url={target_url}"
+def get_token(ch_id):
+    """মনিরুলের লিঙ্ক থেকে সরাসরি টোকেন বের করার জন্য ভিন্ন ভিন্ন ৩টি সোর্স ট্রাই করা"""
+    urls = [
+        f"http://sm-monirul.top/Ayha/play.php?id={ch_id}",
+        f"http://sm-monirul.top/AyNa/play.php?id={ch_id}"
+    ]
     
-    try:
-        response = session.get(proxy_url, timeout=15)
-        if response.status_code == 200:
-            content = response.json().get('contents', '')
-            # আয়নাস্কোপের ইউনিক টোকেন প্যাটার্ন খোঁজা
-            match = re.search(r'\?(e=\d+&u=[a-z0-9-]+&token=[a-zA-Z0-9]+)', content)
+    for url in urls:
+        try:
+            # সরাসরি রিকোয়েস্ট (কোনো প্রক্সি ছাড়া)
+            response = requests.get(url, headers=HEADERS, timeout=10, allow_redirects=True)
+            # টেক্সট বা ফাইনাল ইউআরএল থেকে টোকেন খোঁজা
+            source = response.url + response.text
+            match = re.search(r'\?(e=\d+&u=[a-z0-9-]+&token=[a-zA-Z0-9]+)', source)
             if match:
-                token = match.group(1)
-                srv = "tvsen7" if "tsport" in ch_id.lower() or "sports" in ch_id.lower() else "tvsen6"
-                final_link = f"https://{srv}.aynascope.net/{ch_id}/index.m3u8?{token}"
-                return f'#EXTINF:-1 group-title="NRJTVBD", {ch_name}\n{final_link}\n\n'
-    except:
-        pass
+                return match.group(1)
+        except:
+            continue
+    return None
+
+def process_channel(name, ch_id):
+    name = name.strip()
+    ch_id = ch_id.strip()
+    
+    token = get_token(ch_id)
+    if token:
+        srv = "tvsen7" if "tsport" in ch_id.lower() or "sports" in ch_id.lower() else "tvsen6"
+        link = f"https://{srv}.aynascope.net/{ch_id}/index.m3u8?{token}"
+        return f'#EXTINF:-1 group-title="NRJTVBD", {name}\n{link}\n\n'
     return None
 
 def main():
-    print(f"🚀 Starting Multi-Threaded Inspection for 272 Channels...")
-    start_time = datetime.now()
-
-    source_file = "Script/aynaott.txt"
-    if not os.path.exists(source_file):
-        print("❌ Error: aynaott.txt not found!")
-        return
-
-    with open(source_file, "r", encoding="utf-8") as f:
-        content = f.read()
-
-    # নাম এবং আইডি খুঁজে বের করা
-    matches = re.findall(r'#EXTINF:.*,(.*)\n.*id=([^&\s]+)', content)
+    print("🚀 Starting Professional AynaOTT Recovery (272 Channels)...")
+    source_path = "Script/aynaott.txt"
     
-    if not matches:
-        print("❌ No channels found in source.")
+    if not os.path.exists(source_path):
+        print("❌ Source file not found!")
         return
 
-    print(f"📂 Found {len(matches)} channels. Scanning tokens independently...")
+    with open(source_path, "r", encoding="utf-8") as f:
+        data = f.read()
 
-    m3u_content = "#EXTM3U\n"
+    matches = re.findall(r'#EXTINF:.*,(.*)\n.*id=([^&\s]+)', data)
+    print(f"📂 Total Channels Found: {len(matches)}")
+
     results = []
-
-    # ২৭২টি চ্যানেল একে একে করলে অনেক সময় লাগবে, তাই থ্রেডিং ব্যবহার করছি যাতে দ্রুত হয়
-    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-        future_to_ch = {executor.submit(fetch_individual_token, name.strip(), ch_id.strip()): name for name, ch_id in matches}
+    # থ্রেড সংখ্যা কমিয়ে ৫ করা হয়েছে যাতে সার্ভার থেকে ব্লক না করে
+    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+        future_to_ch = {executor.submit(process_channel, n, i): n for n, i in matches}
+        
         for future in concurrent.futures.as_completed(future_to_ch):
             res = future.result()
+            ch_name = future_to_ch[future]
             if res:
                 results.append(res)
-                print(f"✅ Extracted: {future_to_ch[future]}")
+                print(f"✅ {ch_name} -> Token Hijacked!")
             else:
-                print(f"❌ Failed: {future_to_ch[future]}")
-
-    # প্লেলিস্ট তৈরি
-    for entry in results:
-        m3u_content += entry
+                print(f"❌ {ch_name} -> Still Blocked")
+            
+            # সার্ভারকে রেস্ট দিতে সামান্য গ্যাপ (rate limiting bypass)
+            time.sleep(0.5)
 
     with open("AynaOTT.m3u", "w", encoding="utf-8") as f:
-        f.write(m3u_content)
+        f.write("#EXTM3U\n" + "".join(results))
 
-    end_time = datetime.now()
-    duration = end_time - start_time
-    print(f"\n✨ Task Finished in {duration.seconds}s!")
-    print(f"📊 Successfully Synced: {len(results)}/{len(matches)} channels.")
+    print(f"\n📊 Extraction Complete: {len(results)}/272 channels synced.")
 
 if __name__ == "__main__":
     main()
